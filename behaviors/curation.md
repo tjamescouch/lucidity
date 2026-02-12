@@ -11,9 +11,9 @@ periodic process that compresses the trunk, maintains branches, and keeps the tr
    - nodes older than 1 hour and still `full` -> compress to `summary`
    - nodes older than 1 day and still `summary` -> compress to `oneliner`
    - nodes older than 1 week and still `oneliner` -> compress to `tag`
-5. scans for recurring topics or cross-references across trunk nodes
-6. creates or updates branch nodes for significant topics, linked from trunk via @@seek@@
-7. prunes orphan branch nodes (no inbound links, older than threshold)
+5. scans for recurring topics or cross-references across trunk nodes [not-implemented]
+6. creates or updates branch nodes for significant topics, linked from trunk via @@seek@@ [not-implemented]
+7. prunes orphan branch nodes (no inbound links, older than threshold) [partial: orphan pruning exists in tree.js, but not triggered by curator yet]
 8. regenerates skill.md from the current tree state
 9. writes tree to local disk
 10. syncs to persistent storage
