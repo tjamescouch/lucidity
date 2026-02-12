@@ -7,7 +7,7 @@
  * compresses old nodes via `claude -p`, and emits skill.md.
  *
  * usage:
- *   node curator.js --agent NAME --tree PATH --transcript PATH --output PATH [--curate]
+ *   node curator.js --agent NAME --tree PATH --transcript PATH --output PATH [--curate] [--sync]
  *
  * flags:
  *   --agent       agent name (for logging/context)
@@ -15,6 +15,7 @@
  *   --transcript  path to transcript log
  *   --output      path to write skill.md
  *   --curate      run compression pass (requires claude -p)
+ *   --sync        sync tree to git after save
  *
  * without --curate, just adds a trunk node from the transcript and emits skill.md.
  * with --curate, also compresses old nodes using claude -p for summarization.
@@ -34,6 +35,7 @@ const {
   loadTree,
   writeSkillMd,
 } = require('./tree.js');
+const { createStore } = require('./store.js');
 
 // --- arg parsing ---
 
@@ -43,6 +45,7 @@ let treePath = '';
 let transcriptPath = '';
 let outputPath = '';
 let doCurate = false;
+let doSync = false;
 
 for (let i = 0; i < args.length; i++) {
   switch (args[i]) {
@@ -51,6 +54,7 @@ for (let i = 0; i < args.length; i++) {
     case '--transcript': transcriptPath = args[++i]; break;
     case '--output': outputPath = args[++i]; break;
     case '--curate': doCurate = true; break;
+    case '--sync': doSync = true; break;
     default:
       console.error(`unknown arg: ${args[i]}`);
       process.exit(1);
@@ -201,6 +205,17 @@ function main() {
   }
   writeSkillMd(tree, outputPath);
   log(`wrote skill.md to ${outputPath}`);
+
+  // git sync (if requested)
+  if (doSync) {
+    log('syncing to git...');
+    const store = createStore({
+      treeDir: path.dirname(treePath),
+      transcriptDir: path.dirname(transcriptPath || treePath),
+    });
+    const result = store.sync(agentName);
+    log(`sync: ${result.message}`);
+  }
 
   // summary stats
   const nodeCount = Object.keys(tree.nodes).length;
