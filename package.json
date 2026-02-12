@@ -1,0 +1,15 @@
+{
+  "name": "lucidity",
+  "version": "0.1.0",
+  "description": "Agent memory system — curator, transcript adapter, and memory tree",
+  "main": "src/curator.js",
+  "scripts": {
+    "test": "node src/transcript.test.js && node src/integration.test.js",
+    "test:transcript": "node src/transcript.test.js",
+    "test:integration": "node src/integration.test.js",
+    "curator": "node src/curator.js",
+    "supervisor": "bash src/supervisor.sh"
+  },
+  "keywords": ["agent", "memory", "curation", "agentchat"],
+  "license": "MIT"
+}
