@@ -16,7 +16,10 @@ TREE_FILE="${TREE_DIR}/tree.json"
 TRANSCRIPT_LOG="${HOME}/.claude/transcripts/${AGENT_NAME}.log"
 CURATOR_SCRIPT="$(dirname "$0")/curator-run.sh"
 RESTART_DELAY="${RESTART_DELAY:-5}"
+MAX_CRASHES="${MAX_CRASHES:-5}"
+CRASH_WINDOW="${CRASH_WINDOW:-60}"
 SESSION_COUNT=0
+CRASH_TIMES=()
 
 mkdir -p "$(dirname "$SKILL_FILE")" "$TREE_DIR" "$(dirname "$TRANSCRIPT_LOG")"
 
@@ -94,6 +97,25 @@ while true; do
 
   # append exit event to transcript
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] session #${SESSION_COUNT} ended (exit code: ${EXIT_CODE})" >> "$TRANSCRIPT_LOG"
+
+  # crash-rate detection: if too many crashes in window, back off
+  NOW=$(date +%s)
+  CRASH_TIMES+=("$NOW")
+  # prune old crash timestamps outside the window
+  RECENT=()
+  for ts in "${CRASH_TIMES[@]}"; do
+    if (( NOW - ts < CRASH_WINDOW )); then
+      RECENT+=("$ts")
+    fi
+  done
+  CRASH_TIMES=("${RECENT[@]}")
+
+  if (( ${#CRASH_TIMES[@]} >= MAX_CRASHES )); then
+    BACKOFF=60
+    log "crash loop detected (${#CRASH_TIMES[@]} crashes in ${CRASH_WINDOW}s) — backing off ${BACKOFF}s"
+    sleep "$BACKOFF"
+    CRASH_TIMES=()  # reset after backoff
+  fi
 
   # curate after crash/exit (capture what happened)
   curate "exit"
