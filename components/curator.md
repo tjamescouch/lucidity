@@ -13,9 +13,9 @@ child process that runs alongside the agent. watches the transcript, maintains t
 - reads the agent's transcript in real-time
 - creates new trunk nodes from recent conversation
 - compresses older trunk nodes according to compaction rules
-- creates and updates branch nodes for significant topics
-- maintains @@seek@@ links between trunk and branch nodes
-- detects cross-references between topics across time
+- creates and updates branch nodes for significant topics [not-implemented: trunk nodes only, no branch creation yet]
+- maintains @@seek@@ links between trunk and branch nodes [not-implemented: no seek links yet]
+- detects cross-references between topics across time [not-implemented: no cross-reference detection yet]
 - writes the skill.md view for agent consumption
 - syncs the tree to persistent storage
 
@@ -33,6 +33,10 @@ depends on:
 ## invariants
 
 - the curator never modifies the raw transcript — it is read-only on that data
+
+## implementation notes
+
+> curator uses `claude -p` (Sonnet) for all summarization and compression. non-negotiable — this is an LLM call, not string manipulation.
 - skill.md is always a valid, self-contained view of the tree (agent can boot from it alone)
 - the curator survives agent restarts within the same container
 - on unclean shutdown, the tree state is at most one curation interval behind

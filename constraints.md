@@ -41,4 +41,4 @@
 
 ## implementation notes
 
-> the curator is an LLM call — it uses a language model to summarize and compress, not string manipulation. this is the only way to produce meaningful summaries.
+> the curator is an LLM call — it uses `claude -p` (Sonnet) to summarize and compress. not string manipulation. this is the only way to produce meaningful summaries.
