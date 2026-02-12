@@ -31,16 +31,32 @@ if [ -z "$OUTPUT" ]; then
   exit 1
 fi
 
-# backend 1: lucidity curator.js (junior's implementation)
+# backend 1: lucidity boot-memory.js (fast one-shot) or curator.js (full daemon)
+BOOT_MEMORY="${SCRIPT_DIR}/boot-memory.js"
 LUCIDITY_CURATOR="${SCRIPT_DIR}/curator.js"
-if [ -f "$LUCIDITY_CURATOR" ] && command -v node &>/dev/null; then
-  echo "using lucidity curator"
-  node "$LUCIDITY_CURATOR" \
-    --agent "$AGENT" \
-    --tree "$TREE_FILE" \
-    --transcript "$TRANSCRIPT" \
-    --output "$OUTPUT"
-  exit $?
+if command -v node &>/dev/null; then
+  # Prefer boot-memory.js for fast startup (loads tree, emits skill.md, exits)
+  # Use --curate flag when transcript is available for full curation
+  if [ -f "$BOOT_MEMORY" ]; then
+    echo "using lucidity boot-memory (fast mode)"
+    BOOT_ARGS="--tree ${TREE_FILE} --output ${OUTPUT}"
+    if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+      BOOT_ARGS="${BOOT_ARGS} --transcript ${TRANSCRIPT} --curate"
+      echo "  with transcript curation"
+    fi
+    node "$BOOT_MEMORY" $BOOT_ARGS
+    exit $?
+  fi
+  # Fallback to full curator.js if boot-memory.js not available
+  if [ -f "$LUCIDITY_CURATOR" ]; then
+    echo "using lucidity curator (full mode)"
+    node "$LUCIDITY_CURATOR" \
+      --agent "$AGENT" \
+      --tree "$TREE_FILE" \
+      --transcript "$TRANSCRIPT" \
+      --output "$OUTPUT"
+    exit $?
+  fi
 fi
 
 # backend 2: ghost's curator.sh
