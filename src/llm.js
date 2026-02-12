@@ -22,15 +22,30 @@ const PROMPTS = {
 };
 
 // --- Backend: Claude CLI ---
+let _cliExists = null; // cache result of which check
+
+function cliExists() {
+  if (_cliExists !== null) return _cliExists;
+  try {
+    execSync(`which ${CLAUDE_CLI}`, { encoding: 'utf8', timeout: 5000, stdio: 'pipe' });
+    _cliExists = true;
+  } catch {
+    _cliExists = false;
+  }
+  return _cliExists;
+}
+
 async function callClaudeCli(prompt, content) {
+  if (!cliExists()) return null;
   try {
     const input = `${prompt}\n\n---\n\n${content}`;
     const result = execSync(
-      `${CLAUDE_CLI} -p --model haiku "${input.replace(/"/g, '\\"')}"`,
-      { encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024 }
+      `${CLAUDE_CLI} -p --model haiku`,
+      { input, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
     );
     return result.trim();
   } catch (err) {
+    console.warn(`[lucidity] CLI call error: ${err.message}`);
     return null;
   }
 }
@@ -128,14 +143,18 @@ async function summarize(content, level = 'summary') {
     }
   }
 
-  try {
-    const result = await callClaudeCli(prompt, content);
-    if (result) {
-      console.log(`[lucidity] LLM summarization (cli, ${level}): ok`);
-      return result;
+  if (cliExists()) {
+    try {
+      const result = await callClaudeCli(prompt, content);
+      if (result) {
+        console.log(`[lucidity] LLM summarization (cli, ${level}): ok`);
+        return result;
+      }
+    } catch (err) {
+      console.warn(`[lucidity] CLI call failed: ${err.message}, using naive fallback`);
     }
-  } catch (err) {
-    console.warn(`[lucidity] CLI call failed: ${err.message}, using naive fallback`);
+  } else {
+    console.log(`[lucidity] CLI not found (${CLAUDE_CLI}), skipping to fallback`);
   }
 
   console.log(`[lucidity] using naive fallback for ${level} compression`);
