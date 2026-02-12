@@ -5,7 +5,8 @@
 //
 // Supported formats:
 // - agentchat JSONL (one JSON message per line with from/to/content/ts)
-// - claude JSONL (Claude Code conversation logs)
+// - claude-code JSONL (Claude Code conversation logs: {type, message: {role, content}})
+// - claude JSONL (bare {role, content} messages)
 // - plain text (passed through as-is)
 
 const fs = require('fs');
@@ -18,6 +19,8 @@ function detectFormat(line) {
     const obj = JSON.parse(line);
     if (obj.from && obj.to && obj.content) return 'agentchat';
     if (obj.role && obj.content) return 'claude';
+    if (obj.message && obj.message.role) return 'claude-code';
+    if (obj.type && obj.sessionId && !obj.message) return 'claude-code-meta'; // queue-operation etc.
     if (obj.type && obj.message) return 'generic-jsonl';
     return 'unknown-json';
   } catch {
@@ -41,6 +44,48 @@ function parseClaudeMessage(json) {
     ? json.content
     : JSON.stringify(json.content);
   return `[${role}] ${content}`;
+}
+
+function parseClaudeCodeMessage(json) {
+  // Skip non-message entries (queue-operation, summary, etc.)
+  if (!json.message || !json.message.role) return null;
+
+  const role = json.message.role;
+  const content = json.message.content;
+  const ts = json.timestamp || '';
+  const prefix = ts ? `[${ts}]` : '';
+
+  // Extract text from content (string or array of content blocks)
+  let text;
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    const parts = [];
+    for (const block of content) {
+      if (block.type === 'text' && block.text) {
+        parts.push(block.text);
+      } else if (block.type === 'tool_use' && block.name) {
+        parts.push(`[tool: ${block.name}]`);
+      } else if (block.type === 'tool_result') {
+        const resultText = typeof block.content === 'string'
+          ? block.content
+          : block.is_error ? '(error)' : '(result)';
+        parts.push(`[result: ${resultText.slice(0, 200)}]`);
+      }
+    }
+    text = parts.join(' ');
+  } else {
+    text = JSON.stringify(content);
+  }
+
+  if (!text || !text.trim()) return null;
+
+  // Truncate very long messages (e.g. file reads) to keep transcript manageable
+  if (text.length > 2000) {
+    text = text.slice(0, 2000) + '...';
+  }
+
+  return `${prefix} [${role}] ${text}`;
 }
 
 function parseGenericMessage(json) {
@@ -87,6 +132,14 @@ function parseTranscript(raw, opts = {}) {
           result = parseClaudeMessage(json);
           break;
         }
+        case 'claude-code': {
+          const json = JSON.parse(line);
+          result = parseClaudeCodeMessage(json);
+          if (result === null) continue; // skip non-message entries
+          break;
+        }
+        case 'claude-code-meta':
+          continue; // skip metadata entries (queue-operation, etc.)
         case 'generic-jsonl': {
           const json = JSON.parse(line);
           result = parseGenericMessage(json);

@@ -38,6 +38,11 @@ test('detects plain text', () => {
   assert.strictEqual(detectFormat('just some plain text'), 'plain');
 });
 
+test('detects claude-code JSONL', () => {
+  const line = '{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"2026-01-01T00:00:00Z"}';
+  assert.strictEqual(detectFormat(line), 'claude-code');
+});
+
 test('detects generic JSONL', () => {
   const line = '{"type":"event","message":"something happened"}';
   assert.strictEqual(detectFormat(line), 'generic-jsonl');
@@ -66,6 +71,36 @@ test('passes through plain text', () => {
   const result = parseTranscript(input);
   assert(result.includes('line one'));
   assert(result.includes('line three'));
+});
+
+test('parses claude-code user messages', () => {
+  const input = '{"type":"user","message":{"role":"user","content":"what is 2+2?"},"timestamp":"2026-01-01T00:00:00Z"}\n';
+  const result = parseTranscript(input);
+  assert(result.includes('[user]'));
+  assert(result.includes('what is 2+2?'));
+});
+
+test('parses claude-code assistant messages with content array', () => {
+  const input = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The answer is 4."}]},"timestamp":"2026-01-01T00:00:01Z"}\n';
+  const result = parseTranscript(input);
+  assert(result.includes('[assistant]'));
+  assert(result.includes('The answer is 4.'));
+});
+
+test('parses claude-code tool_use blocks', () => {
+  const input = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/tmp/test"}}]},"timestamp":"2026-01-01T00:00:02Z"}\n';
+  const result = parseTranscript(input);
+  assert(result.includes('[tool: Read]'));
+});
+
+test('skips claude-code non-message entries', () => {
+  const input = [
+    '{"type":"queue-operation","operation":"dequeue","timestamp":"2026-01-01T00:00:00Z","sessionId":"abc"}',
+    '{"type":"user","message":{"role":"user","content":"real message"},"timestamp":"2026-01-01T00:00:01Z"}',
+  ].join('\n');
+  const result = parseTranscript(input);
+  assert(!result.includes('queue-operation'));
+  assert(result.includes('real message'));
 });
 
 test('handles mixed formats', () => {
