@@ -1,6 +1,6 @@
 // lucidity/src/llm.js
 // LLM interface for curator summarization
-// Supports: claude CLI, Anthropic API, or naive fallback
+// Supports: OpenAI-compatible API, Anthropic API, claude CLI, or naive fallback
 
 const { execSync } = require('child_process');
 const http = require('http');
@@ -9,7 +9,9 @@ const https = require('https');
 // --- Config ---
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
-const LLM_MODEL = process.env.LUCIDITY_MODEL || 'claude-haiku-4-5-20251001';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com';
+const LLM_MODEL = process.env.LUCIDITY_MODEL || 'gpt-4o-mini';
 const CLAUDE_CLI = process.env.LUCIDITY_CLAUDE_CLI || 'claude';
 
 // --- Prompts ---
@@ -52,50 +54,28 @@ async function callClaudeCli(prompt, content) {
   }
 }
 
-// --- Backend: Anthropic API ---
-function callAnthropicApi(prompt, content) {
+// --- Generic HTTP request helper ---
+function httpRequest(url, options, body) {
   return new Promise((resolve, reject) => {
-    if (!ANTHROPIC_API_KEY) {
-      return reject(new Error('No ANTHROPIC_API_KEY'));
-    }
-
-    const body = JSON.stringify({
-      model: LLM_MODEL,
-      max_tokens: 1024,
-      messages: [
-        { role: 'user', content: `${prompt}\n\n---\n\n${content}` }
-      ],
-    });
-
-    const parsed = new URL(ANTHROPIC_BASE_URL);
+    const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
-    const options = {
+    const reqOpts = {
       hostname: parsed.hostname,
       port: parsed.port || (isHttps ? 443 : 80),
-      path: `${parsed.pathname.replace(/\/+$/, '')}/v1/messages`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Length': Buffer.byteLength(body),
-      },
+      path: parsed.pathname,
+      method: options.method || 'POST',
+      headers: options.headers || {},
     };
 
     const transport = isHttps ? https : http;
-    const req = transport.request(options, (res) => {
+    const req = transport.request(reqOpts, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         try {
-          const parsed = JSON.parse(data);
-          if (parsed.content && parsed.content[0]) {
-            resolve(parsed.content[0].text.trim());
-          } else {
-            reject(new Error(`Unexpected API response: ${data.slice(0, 200)}`));
-          }
+          resolve(JSON.parse(data));
         } catch (e) {
-          reject(e);
+          reject(new Error(`Invalid JSON response: ${data.slice(0, 200)}`));
         }
       });
     });
@@ -105,9 +85,68 @@ function callAnthropicApi(prompt, content) {
       req.destroy();
       reject(new Error('API request timeout'));
     });
-    req.write(body);
+    if (body) req.write(body);
     req.end();
   });
+}
+
+// --- Backend: OpenAI-compatible API ---
+async function callOpenAiApi(prompt, content) {
+  if (!OPENAI_API_KEY) throw new Error('No OPENAI_API_KEY');
+
+  const base = OPENAI_BASE_URL.replace(/\/+$/, '');
+  const url = `${base}/v1/chat/completions`;
+
+  const body = JSON.stringify({
+    model: LLM_MODEL,
+    max_tokens: 1024,
+    messages: [
+      { role: 'system', content: prompt },
+      { role: 'user', content },
+    ],
+  });
+
+  const data = await httpRequest(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Content-Length': Buffer.byteLength(body),
+    },
+  }, body);
+
+  const text = data?.choices?.[0]?.message?.content;
+  if (typeof text === 'string') return text.trim();
+  throw new Error(`Unexpected OpenAI response: ${JSON.stringify(data).slice(0, 200)}`);
+}
+
+// --- Backend: Anthropic API ---
+async function callAnthropicApi(prompt, content) {
+  if (!ANTHROPIC_API_KEY) throw new Error('No ANTHROPIC_API_KEY');
+
+  const base = ANTHROPIC_BASE_URL.replace(/\/+$/, '');
+  const url = `${base}/v1/messages`;
+
+  const body = JSON.stringify({
+    model: LLM_MODEL,
+    max_tokens: 1024,
+    messages: [
+      { role: 'user', content: `${prompt}\n\n---\n\n${content}` }
+    ],
+  });
+
+  const data = await httpRequest(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'Content-Length': Buffer.byteLength(body),
+    },
+  }, body);
+
+  if (data?.content?.[0]?.text) return data.content[0].text.trim();
+  throw new Error(`Unexpected Anthropic response: ${JSON.stringify(data).slice(0, 200)}`);
 }
 
 // --- Backend: Naive fallback (no LLM) ---
@@ -131,20 +170,37 @@ function naiveSummarize(content, level) {
   }
 }
 
+// --- Detect if model is OpenAI-family ---
+function isOpenAiModel(model) {
+  return /^(gpt-|o[134]-|o[134]$|chatgpt-)/.test(model);
+}
+
 // --- Main interface ---
 async function summarize(content, level = 'summary') {
   const prompt = PROMPTS[level] || PROMPTS.summary;
 
-  // Try backends in order: API > CLI > naive
-  if (ANTHROPIC_API_KEY) {
+  // Try backends in order: OpenAI > Anthropic > CLI > naive
+  if (OPENAI_API_KEY && isOpenAiModel(LLM_MODEL)) {
     try {
-      const result = await callAnthropicApi(prompt, content);
+      const result = await callOpenAiApi(prompt, content);
       if (result) {
-        console.log(`[lucidity] LLM summarization (api, ${level}): ok`);
+        console.log(`[lucidity] LLM summarization (openai, ${level}): ok`);
         return result;
       }
     } catch (err) {
-      console.warn(`[lucidity] API call failed: ${err.message}, trying CLI...`);
+      console.warn(`[lucidity] OpenAI API call failed: ${err.message}, trying Anthropic...`);
+    }
+  }
+
+  if (ANTHROPIC_API_KEY && !isOpenAiModel(LLM_MODEL)) {
+    try {
+      const result = await callAnthropicApi(prompt, content);
+      if (result) {
+        console.log(`[lucidity] LLM summarization (anthropic, ${level}): ok`);
+        return result;
+      }
+    } catch (err) {
+      console.warn(`[lucidity] Anthropic API call failed: ${err.message}, trying CLI...`);
     }
   }
 
@@ -168,7 +224,8 @@ async function summarize(content, level = 'summary') {
 
 // Check which backend is available
 function getBackend() {
-  if (ANTHROPIC_API_KEY) return 'anthropic-api';
+  if (OPENAI_API_KEY && isOpenAiModel(LLM_MODEL)) return 'openai-api';
+  if (ANTHROPIC_API_KEY && !isOpenAiModel(LLM_MODEL)) return 'anthropic-api';
   try {
     execSync(`which ${CLAUDE_CLI}`, { encoding: 'utf8' });
     return 'claude-cli';
