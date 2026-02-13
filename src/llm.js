@@ -3,10 +3,12 @@
 // Supports: claude CLI, Anthropic API, or naive fallback
 
 const { execSync } = require('child_process');
+const http = require('http');
 const https = require('https');
 
 // --- Config ---
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
+const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
 const LLM_MODEL = process.env.LUCIDITY_MODEL || 'claude-sonnet-4-20250514';
 const CLAUDE_CLI = process.env.LUCIDITY_CLAUDE_CLI || 'claude';
 
@@ -65,10 +67,12 @@ function callAnthropicApi(prompt, content) {
       ],
     });
 
+    const parsed = new URL(ANTHROPIC_BASE_URL);
+    const isHttps = parsed.protocol === 'https:';
     const options = {
-      hostname: 'api.anthropic.com',
-      port: 443,
-      path: '/v1/messages',
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: `${parsed.pathname.replace(/\/+$/, '')}/v1/messages`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -78,7 +82,8 @@ function callAnthropicApi(prompt, content) {
       },
     };
 
-    const req = https.request(options, (res) => {
+    const transport = isHttps ? https : http;
+    const req = transport.request(options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
