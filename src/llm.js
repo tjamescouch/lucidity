@@ -9,7 +9,7 @@ const https = require('https');
 // --- Config ---
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
-const LLM_MODEL = process.env.LUCIDITY_MODEL || 'claude-sonnet-4-20250514';
+const LLM_MODEL = process.env.LUCIDITY_MODEL || 'claude-haiku-4-5-20251001';
 const CLAUDE_CLI = process.env.LUCIDITY_CLAUDE_CLI || 'claude';
 
 // --- Prompts ---
