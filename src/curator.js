@@ -11,6 +11,60 @@ const { createTree, addTrunkNode, compressNode, pruneOrphans,
 const { summarize, getBackend } = require('./llm');
 const { readTranscriptFile } = require('./transcript');
 
+// --- Curation markers ---
+// @@curated:: markers are written to the transcript after each curation pass.
+// On restart, the curator scans for the last marker to resume from the correct
+// offset, preventing re-ingestion of already-processed content.
+const MARKER_PREFIX = '@@curated::';
+const MARKER_SUFFIX = '@@';
+
+function makeMarker(nodeId) {
+  return `${MARKER_PREFIX}${nodeId}${MARKER_SUFFIX}`;
+}
+
+/**
+ * Scan a transcript file for the last @@curated::<nodeId>@@ marker.
+ * Returns the byte offset just past the marker line, or 0 if none found.
+ */
+function findLastMarkerOffset(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return 0;
+
+  const content = fs.readFileSync(filePath, 'utf8');
+  let lastMarkerEnd = 0;
+
+  // Find all markers, keep track of the byte position after the last one
+  let searchFrom = 0;
+  while (true) {
+    const idx = content.indexOf(MARKER_PREFIX, searchFrom);
+    if (idx === -1) break;
+
+    const endIdx = content.indexOf(MARKER_SUFFIX, idx + MARKER_PREFIX.length);
+    if (endIdx === -1) break;
+
+    // Move past the marker line (include trailing newline if present)
+    let lineEnd = endIdx + MARKER_SUFFIX.length;
+    if (content[lineEnd] === '\n') lineEnd++;
+
+    lastMarkerEnd = Buffer.byteLength(content.slice(0, lineEnd), 'utf8');
+    searchFrom = lineEnd;
+  }
+
+  return lastMarkerEnd;
+}
+
+/**
+ * Append a @@curated:: marker to the transcript file.
+ */
+function writeMarker(filePath, nodeId) {
+  if (!filePath) return;
+  try {
+    fs.appendFileSync(filePath, `\n${makeMarker(nodeId)}\n`);
+    console.log(`[lucidity] wrote curation marker for node ${nodeId.slice(0, 8)}`);
+  } catch (err) {
+    console.error(`[lucidity] failed to write curation marker: ${err.message}`);
+  }
+}
+
 // --- Config ---
 const CURATION_INTERVAL_MS = parseInt(process.env.LUCIDITY_INTERVAL || '300000'); // 5 min default
 const SKILL_MD_PATH = process.env.LUCIDITY_SKILL_PATH || path.join(process.env.HOME, '.claude', 'agentchat.skill.md');
@@ -37,6 +91,12 @@ function init() {
   } else {
     tree = createTree();
     console.log('[lucidity] no existing tree found, creating new one');
+  }
+
+  // Restore curation offset from last @@curated:: marker in transcript
+  lastCurationOffset = findLastMarkerOffset(TRANSCRIPT_PATH);
+  if (lastCurationOffset > 0) {
+    console.log(`[lucidity] restored curation offset from marker: ${lastCurationOffset}`);
   }
 
   console.log(`[lucidity] curator started. interval=${CURATION_INTERVAL_MS}ms`);
@@ -131,6 +191,9 @@ async function curate() {
     if (facts) {
       const node = addTrunkNode(tree, facts);
       console.log(`[lucidity] added trunk node: ${node.id}`);
+
+      // Write @@curated:: marker to transcript so we don't re-ingest on restart
+      writeMarker(TRANSCRIPT_PATH, node.id);
     }
   }
 
