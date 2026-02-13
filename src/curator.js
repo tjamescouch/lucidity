@@ -10,6 +10,7 @@ const { createTree, addTrunkNode, compressNode, pruneOrphans,
         emitSkillMd, writeSkillMd: writeSkillMdToFile } = require('./tree');
 const { summarize, getBackend } = require('./llm');
 const { readTranscriptFile } = require('./transcript');
+const { asError } = require('./errors');
 
 // --- Config ---
 const CURATION_INTERVAL_MS = parseInt(process.env.LUCIDITY_INTERVAL || '300000'); // 5 min default
@@ -54,7 +55,8 @@ function doWriteSkillMd() {
     writeSkillMdToFile(tree, SKILL_MD_PATH);
     const size = fs.statSync(SKILL_MD_PATH).size;
     console.log(`[lucidity] wrote skill.md (${size} bytes)`);
-  } catch (err) {
+  } catch (e) {
+    const err = asError(e);
     console.error('[lucidity] failed to write skill.md:', err.message);
   }
 }
@@ -62,7 +64,8 @@ function doWriteSkillMd() {
 function doSaveTree() {
   try {
     saveTree(tree, TREE_PATH);
-  } catch (err) {
+  } catch (e) {
+    const err = asError(e);
     console.error('[lucidity] failed to save tree:', err.message);
   }
 }
@@ -84,7 +87,8 @@ function readTranscriptDelta() {
     lastCurationOffset = result.newOffset;
     console.log(`[lucidity] read ${result.bytesRead} bytes of transcript (offset now ${result.newOffset})`);
     return result.text;
-  } catch (err) {
+  } catch (e) {
+    const err = asError(e);
     console.error('[lucidity] failed to read transcript:', err.message);
     return null;
   }
@@ -95,7 +99,8 @@ async function extractKeyFacts(transcript) {
   const input = transcript.length > 10000 ? transcript.slice(-10000) : transcript;
   try {
     return await summarize(input, 'root');
-  } catch (err) {
+  } catch (e) {
+    const err = asError(e);
     console.warn(`[lucidity] LLM extraction failed, using raw truncation: ${err.message}`);
     const lines = input.trim().split('\n');
     const recent = lines.slice(-50).join('\n');
@@ -113,7 +118,8 @@ async function compressTrunk() {
       const compressed = await summarize(node.content, target.to);
       compressNode(tree, target.id, compressed, target.to);
       console.log(`[lucidity] compressed ${target.id}: ${target.from} → ${target.to}`);
-    } catch (err) {
+    } catch (e) {
+      const err = asError(e);
       console.warn(`[lucidity] compression failed for ${target.id}: ${err.message}`);
     }
   }
@@ -168,8 +174,9 @@ function shutdown() {
   curate().then(() => {
     console.log('[lucidity] final curation complete. goodbye.');
     process.exit(0);
-  }).catch(err => {
-    console.error('[lucidity] error during shutdown curation:', err);
+  }).catch(e => {
+    const err = asError(e);
+    console.error('[lucidity] error during shutdown curation:', err.message);
     doSaveTree();
     doWriteSkillMd();
     process.exit(1);
@@ -184,7 +191,8 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 process.on('SIGHUP', shutdown);
 
-run().catch(err => {
-  console.error('[lucidity] fatal error:', err);
+run().catch(e => {
+  const err = asError(e);
+  console.error('[lucidity] fatal error:', err.message);
   process.exit(1);
 });

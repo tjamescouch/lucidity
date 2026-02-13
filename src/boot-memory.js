@@ -18,6 +18,7 @@ const path = require('path');
 const { createTree, addTrunkNode, compressNode, pruneOrphans,
         getCompactionTargets, saveTree, loadTree,
         writeSkillMd } = require('./tree');
+const { asError } = require('./errors');
 
 // --- Parse args ---
 const args = process.argv.slice(2);
@@ -75,7 +76,8 @@ async function main() {
               const node = addTrunkNode(tree, facts);
               console.log(`[boot-memory] added trunk node: ${node.id}`);
             }
-          } catch (err) {
+          } catch (e) {
+            const err = asError(e);
             console.warn(`[boot-memory] LLM summarization failed, using raw: ${err.message}`);
             const raw = result.text.slice(-2000);
             addTrunkNode(tree, raw);
@@ -92,7 +94,8 @@ async function main() {
           const compressed = await summarize(node.content, target.to);
           compressNode(tree, target.id, compressed, target.to);
           console.log(`[boot-memory] compressed ${target.id}: ${target.from} → ${target.to}`);
-        } catch (err) {
+        } catch (e) {
+          const err = asError(e);
           console.warn(`[boot-memory] compression failed for ${target.id}: ${err.message}`);
         }
       }
@@ -106,7 +109,8 @@ async function main() {
       // Save updated tree
       saveTree(tree, TREE_PATH);
       console.log('[boot-memory] saved tree');
-    } catch (err) {
+    } catch (e) {
+      const err = asError(e);
       console.error(`[boot-memory] curation error: ${err.message}`);
       console.log('[boot-memory] continuing with existing tree state');
     }
@@ -132,7 +136,8 @@ async function main() {
 main().then(() => {
   console.log('[boot-memory] done');
   process.exit(0);
-}).catch(err => {
+}).catch(e => {
+  const err = asError(e);
   console.error(`[boot-memory] fatal: ${err.message}`);
   // Even on error, try to write a minimal skill.md so the agent isn't blank
   try {

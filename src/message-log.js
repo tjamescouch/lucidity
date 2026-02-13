@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { asError } = require('./errors');
 
 // --- Config ---
 const LOG_DIR = process.env.LUCIDITY_LOG_DIR || path.join(process.env.HOME, '.claude', 'memory', 'logs');
@@ -81,7 +82,8 @@ function log(msg) {
     fs.writeSync(currentFd, line);
     bytesWritten += Buffer.byteLength(line);
     messagesWritten++;
-  } catch (err) {
+  } catch (e) {
+    const err = asError(e);
     console.error(`[message-log] write error: ${err.message}`);
     // Try reopening on next call
     currentFd = null;

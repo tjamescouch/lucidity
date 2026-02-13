@@ -5,6 +5,7 @@
 const { execSync } = require('child_process');
 const http = require('http');
 const https = require('https');
+const { asError } = require('./errors');
 
 // --- Config ---
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || null;
@@ -48,7 +49,8 @@ async function callClaudeCli(prompt, content) {
       { input, encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
     );
     return result.trim();
-  } catch (err) {
+  } catch (e) {
+    const err = asError(e);
     console.warn(`[lucidity] CLI call error: ${err.message}`);
     return null;
   }
@@ -187,7 +189,8 @@ async function summarize(content, level = 'summary') {
         console.log(`[lucidity] LLM summarization (openai, ${level}): ok`);
         return result;
       }
-    } catch (err) {
+    } catch (e) {
+      const err = asError(e);
       console.warn(`[lucidity] OpenAI API call failed: ${err.message}, trying Anthropic...`);
     }
   }
@@ -199,7 +202,8 @@ async function summarize(content, level = 'summary') {
         console.log(`[lucidity] LLM summarization (anthropic, ${level}): ok`);
         return result;
       }
-    } catch (err) {
+    } catch (e) {
+      const err = asError(e);
       console.warn(`[lucidity] Anthropic API call failed: ${err.message}, trying CLI...`);
     }
   }
@@ -211,7 +215,8 @@ async function summarize(content, level = 'summary') {
         console.log(`[lucidity] LLM summarization (cli, ${level}): ok`);
         return result;
       }
-    } catch (err) {
+    } catch (e) {
+      const err = asError(e);
       console.warn(`[lucidity] CLI call failed: ${err.message}, using naive fallback`);
     }
   } else {
