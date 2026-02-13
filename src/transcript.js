@@ -15,6 +15,9 @@ const path = require('path');
 // --- Format detection ---
 
 function detectFormat(line) {
+  // Skip @@curated:: markers (written by the curator to track ingestion progress)
+  if (line.startsWith('@@curated::') && line.endsWith('@@')) return 'curated-marker';
+
   try {
     const obj = JSON.parse(line);
     if (obj.from && obj.to && obj.content) return 'agentchat';
@@ -140,6 +143,8 @@ function parseTranscript(raw, opts = {}) {
         }
         case 'claude-code-meta':
           continue; // skip metadata entries (queue-operation, etc.)
+        case 'curated-marker':
+          continue; // skip @@curated:: markers (curator ingestion bookmarks)
         case 'generic-jsonl': {
           const json = JSON.parse(line);
           result = parseGenericMessage(json);
