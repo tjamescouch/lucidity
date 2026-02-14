@@ -72,6 +72,9 @@ const TREE_PATH = process.env.LUCIDITY_TREE_PATH || path.join(process.env.HOME, 
 const PAGES_DIR = process.env.LUCIDITY_PAGES_DIR || path.join(process.env.HOME, '.claude', 'memory', 'pages');
 const TRANSCRIPT_PATH = process.env.LUCIDITY_TRANSCRIPT || null;
 
+// --- CLI args ---
+const ONCE = process.argv.includes('--once');
+
 // --- State ---
 let tree = null;
 let lastCurationOffset = 0;
@@ -218,6 +221,11 @@ async function curate() {
 // --- Lifecycle ---
 async function run() {
   init();
+
+  if (ONCE) {
+    await curate();
+    return;
+  }
 
   while (running) {
     await curate();
