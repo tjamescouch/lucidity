@@ -89,10 +89,15 @@ parse_github_repo() {
 NOTIFY_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/merge-notify.cjs"
 
 notify_pr() {
-    local message="$1"
+    local github_repo="$1" branch="$2" pr_url="$3"
     # Fire-and-forget — don't block mergebot on notification failures
     if [[ -f "$NOTIFY_SCRIPT" ]] && command -v node &>/dev/null; then
-        node "$NOTIFY_SCRIPT" "$message" &>/dev/null &
+        local branch_url="https://github.com/${github_repo}/tree/${branch}"
+        local msg="### New PR: \`${branch}\`
+**Repo:** [${github_repo}](https://github.com/${github_repo})
+**Branch:** [${branch}](${branch_url})
+**PR:** [${pr_url}](${pr_url})"
+        node "$NOTIFY_SCRIPT" "$msg" &>/dev/null &
     fi
 }
 
@@ -231,6 +236,16 @@ scan_repo() {
             continue
         fi
 
+        # Skip branches with no commits ahead of base — nothing to PR
+        local ahead_count
+        ahead_count=$(git -C "$repo_dir" rev-list --count "${BASE_BRANCH}..${branch}" 2>/dev/null) || ahead_count=""
+        if [[ "$ahead_count" == "0" ]]; then
+            vlog "  SKIP ${branch} — no commits ahead of ${BASE_BRANCH}"
+            known_pr_store "$track_key" "identical-to-base"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
         # Check if a PR already exists for this branch
         local existing_pr
         if ! existing_pr=$(gh pr list --head "$branch" --repo "$github_repo" --json url --jq '.[0].url' 2>&1); then
@@ -262,6 +277,16 @@ scan_repo() {
             --repo "$github_repo" \
             --title "$branch" \
             --body "Auto-created by mergebot from wormhole branch." 2>&1); then
+
+            # Benign: PR already exists or no commits to diff
+            if echo "$pr_url" | grep -qi "already exists\|No commits between"; then
+                vlog "  SKIP ${branch} — ${pr_url##*: }"
+                known_pr_store "$track_key" "already-exists"
+                skipped=$((skipped + 1))
+                circuit_record_success
+                continue
+            fi
+
             log "  ERROR creating PR for ${repo_name}/${branch}: ${pr_url}"
             circuit_record_error
             errors=$((errors + 1))
@@ -274,7 +299,7 @@ scan_repo() {
         log "  CREATED PR ${repo_name}/${branch} → ${pr_url}"
 
         # Notify agentchat
-        notify_pr "PR ${github_repo}/${branch} → ${pr_url}"
+        notify_pr "$github_repo" "$branch" "$pr_url"
 
     done <<< "$branches"
 
@@ -398,7 +423,6 @@ main() {
         done
     fi
 
-    rm -f "$PID_FILE"
     log "Mergebot stopped"
 }
 
@@ -408,10 +432,9 @@ RUNNING=true
 
 cleanup() {
     log "Shutting down..."
-    RUNNING=false
-    rm -f "$KNOWN_PRS_FILE"
+    rm -f "$KNOWN_PRS_FILE" "$PID_FILE"
 }
-trap cleanup SIGINT SIGTERM
-trap 'rm -f "$KNOWN_PRS_FILE"' EXIT
+trap cleanup EXIT
+trap 'RUNNING=false' SIGINT SIGTERM
 
 main
